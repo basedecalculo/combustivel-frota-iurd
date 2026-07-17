@@ -444,27 +444,23 @@
     #gaugeNeedle,.compare-bar-fill{transition:none;}
   }
 
-  /* ---------- mobile preview mode ---------- */
-  body.modo-celular{
-    background:#101316 !important;
-    background-image:none !important;
-    padding:26px 0;
+  /* ---------- mobile preview mode (moldura com iframe real) ---------- */
+  .mobile-preview-overlay{
+    position:fixed;inset:0;z-index:200;
+    background:rgba(0,0,0,0.75);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;
+    padding:20px;
   }
-  body.modo-celular .app{
-    max-width:392px;
-    margin:0 auto;
-    border:8px solid #05070a;
-    border-radius:34px;
-    box-shadow:0 26px 60px rgba(0,0,0,0.6);
-    overflow:hidden;
-    padding-bottom:0;
+  .mobile-preview-frame{
+    width:390px;max-width:90vw;height:min(844px, 85vh);
+    border:10px solid #0a0d10;border-radius:38px;
+    overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,0.6);
+    background:#000;
   }
-  body.modo-celular #mainContent{
-    max-height:82vh;
-    overflow-y:auto;
-    -webkit-overflow-scrolling:touch;
+  .mobile-preview-frame iframe{
+    width:100%;height:100%;border:none;display:block;
   }
-  body.modo-celular .gate-overlay{position:absolute;}
+  .mobile-preview-close{width:auto;padding:10px 20px;}
 </style>
 </head>
 <body>
@@ -1894,9 +1890,20 @@
   // ================= VISUALIZAR COMO CELULAR =================
   var btnMobile = document.getElementById("btnMobile");
   btnMobile.addEventListener("click", function(){
-    var ativo = document.body.classList.toggle("modo-celular");
-    btnMobile.textContent = ativo ? "🖥" : "📱";
-    btnMobile.title = ativo ? "Voltar ao normal" : "Visualizar como celular";
+    if (document.getElementById("mobilePreviewOverlay")) return;
+    var overlay = document.createElement("div");
+    overlay.id = "mobilePreviewOverlay";
+    overlay.className = "mobile-preview-overlay";
+    overlay.innerHTML =
+      '<div class="mobile-preview-frame"><iframe src="' + location.href.split("#")[0] + '"></iframe></div>' +
+      '<button type="button" class="btn-secondary mobile-preview-close" id="btnFecharMobile">Fechar pré-visualização</button>';
+    document.body.appendChild(overlay);
+    document.getElementById("btnFecharMobile").addEventListener("click", function(){
+      overlay.remove();
+    });
+    overlay.addEventListener("click", function(ev){
+      if (ev.target === overlay) overlay.remove();
+    });
   });
 
   // ================= TELA CHEIA =================
