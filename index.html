@@ -149,11 +149,36 @@
     backdrop-filter:blur(var(--glass-blur));
     -webkit-backdrop-filter:blur(var(--glass-blur));
     border-radius:var(--radius-lg);
-    box-shadow:var(--shadow), inset 0 1px 0 rgba(210,225,255,0.16), inset 0 0 0 1px rgba(255,255,255,0.02);
+    position:relative;
+    box-shadow:var(--shadow), inset 0 1.5px 0 rgba(210,225,255,0.20), inset 0 -1.5px 0 rgba(0,0,0,0.35), inset 0 0 0 1px rgba(255,255,255,0.02);
     border:1px solid var(--border);
     padding:24px;
   }
   .card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;}
+
+  /* botão pequeno de opções (⋮) em todos os cartões — imprimir, PNG, PDF, compartilhar */
+  .mini-menu-btn{
+    position:absolute;top:12px;right:12px;z-index:6;
+    width:26px;height:26px;border-radius:8px;border:1px solid var(--border);flex:0 0 auto;
+    background:linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.01)), var(--card-solid);
+    color:var(--text-600);font-size:14px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;
+    transition:background .15s ease, border-color .15s ease, transform .1s ease, color .15s ease;
+  }
+  .mini-menu-btn:hover{border-color:var(--verde);color:var(--ink);background:linear-gradient(180deg, rgba(0,166,81,0.16), rgba(255,255,255,0.01)), var(--card-solid);}
+  .mini-menu-btn:active{transform:translateY(1px);background:linear-gradient(180deg, rgba(0,166,81,0.30), rgba(255,255,255,0.01)), var(--card-solid);}
+  .mini-menu-pop{
+    position:fixed;z-index:220;min-width:172px;
+    background:linear-gradient(160deg, rgba(0,166,81,0.14), rgba(62,130,220,0.16)), var(--card-solid);
+    border:1px solid var(--border);border-radius:12px;padding:6px;
+    box-shadow:0 20px 42px rgba(0,4,16,0.55), inset 0 1.5px 0 rgba(210,225,255,0.18), inset 0 -1.5px 0 rgba(0,0,0,0.4);
+    backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));
+  }
+  .mini-menu-pop button{
+    all:unset;box-sizing:border-box;display:flex;align-items:center;gap:8px;width:100%;
+    padding:8px 10px;border-radius:8px;font-size:12.5px;font-weight:700;color:var(--ink);cursor:pointer;font-family:var(--font-body);
+  }
+  .mini-menu-pop button:hover{background:rgba(0,166,81,0.18);}
+  .mini-menu-pop button:active{background:rgba(0,166,81,0.32);}
   .card h2{
     font-family:var(--font-head);
     font-size:13.5px;
@@ -2271,6 +2296,68 @@
   limparIdentificacao();
   renderHistorico();
   renderImportadas();
+
+  // ================= MENU POR CARTÃO (⋮ imprimir · PNG · PDF · compartilhar) =================
+  // Todos os cartões representam o mesmo cálculo — por isso os 4 botões reaproveitam
+  // as mesmas funções já existentes (salvarPdf, gerarPng, compartilharWhatsApp).
+  var menuCartaoAberto = null;
+  function fecharMenuCartao(){
+    if (menuCartaoAberto && menuCartaoAberto.parentNode) menuCartaoAberto.parentNode.removeChild(menuCartaoAberto);
+    menuCartaoAberto = null;
+  }
+  document.addEventListener("click", function(ev){
+    if (!menuCartaoAberto) return;
+    if (menuCartaoAberto.contains(ev.target) || ev.target.closest(".mini-menu-btn")) return;
+    fecharMenuCartao();
+  });
+  window.addEventListener("resize", fecharMenuCartao);
+
+  function abrirMenuCartao(ev){
+    ev.stopPropagation();
+    var btnAtual = ev.currentTarget;
+    var id = btnAtual.getAttribute("data-id");
+    var mesmo = menuCartaoAberto && menuCartaoAberto.getAttribute("data-de") === id;
+    fecharMenuCartao();
+    if (mesmo) return;
+    var pop = document.createElement("div");
+    pop.className = "mini-menu-pop";
+    pop.setAttribute("data-de", id);
+    pop.innerHTML =
+      '<button type="button" data-acao="imprimir">🖨 Imprimir</button>' +
+      '<button type="button" data-acao="png">🖼 Exportar PNG</button>' +
+      '<button type="button" data-acao="pdf">📄 Exportar PDF</button>' +
+      '<button type="button" data-acao="compartilhar">📤 Compartilhar</button>';
+    document.body.appendChild(pop);
+    var r = btnAtual.getBoundingClientRect();
+    var largura = pop.offsetWidth || 172, altura = pop.offsetHeight || 150;
+    var x = r.right - largura, y = r.bottom + 6;
+    if (x < 8) x = 8;
+    if (y + altura > window.innerHeight - 8) y = r.top - altura - 6;
+    pop.style.left = x + "px"; pop.style.top = y + "px";
+    pop.querySelectorAll("button[data-acao]").forEach(function(b){
+      b.addEventListener("click", function(){
+        var acao = b.getAttribute("data-acao");
+        fecharMenuCartao();
+        if (acao === "imprimir" || acao === "pdf") salvarPdf();
+        else if (acao === "png") gerarPng();
+        else if (acao === "compartilhar") compartilharWhatsApp();
+      });
+    });
+    menuCartaoAberto = pop;
+  }
+
+  function inicializarMenusCartao(){
+    document.querySelectorAll(".card").forEach(function(el, i){
+      if (el.querySelector(":scope > .mini-menu-btn")) return;
+      var btn = document.createElement("button");
+      btn.type = "button"; btn.className = "mini-menu-btn"; btn.title = "Imprimir, exportar ou compartilhar o cálculo";
+      btn.setAttribute("data-id", el.id || ("cartao" + i));
+      btn.textContent = "⋮";
+      btn.addEventListener("click", abrirMenuCartao);
+      el.appendChild(btn);
+    });
+  }
+  inicializarMenusCartao();
 
   if (!checarBloqueioOffline()){
     var jaAutenticado = false;
