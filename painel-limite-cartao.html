@@ -527,12 +527,20 @@
   });
 
   document.getElementById("btnSair").addEventListener("click", function(){
-    authFB.signOut().then(function(){
+    authFB.signOut();
+  });
+
+  // Mesma sessão do index.html (mesmo projeto Firebase, mesmo domínio):
+  // se já estiver logado lá, entra direto aqui também — e se sair de um lado, sai dos dois.
+  authFB.onAuthStateChanged(function(user){
+    if (user){
+      finalizarLogin(user);
+    } else {
       isAdmin = false; blocoAtual = null; RAW = []; KM_RAW = [];
       document.getElementById("mainContent").hidden = true;
       document.getElementById("loginSenha").value = "";
       document.getElementById("loginScreen").hidden = false;
-    });
+    }
   });
 
   // ================= CARREGAR DADOS DO FIRESTORE =================
