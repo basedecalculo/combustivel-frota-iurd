@@ -484,6 +484,10 @@
     document.getElementById("loginError").hidden = true;
   });
 
+  if (new URLSearchParams(location.search).get("modo") === "admin"){
+    document.getElementById("btnPortalAdm").click();
+  }
+
   document.getElementById("btnEntrar").addEventListener("click", function(){
     var perfil = document.getElementById("loginPerfil").value;
     var senha = document.getElementById("loginSenha").value;
@@ -1023,7 +1027,7 @@
   ];
 
   function permissoesPadrao(){
-    return {bloqueado:false, editarKm:true, editarPreco:true, corrigirEndereco:true, salvarRelatorio:true, compartilharRelatorio:true};
+    return {bloqueado:false, editarKm:false, editarPreco:false, corrigirEndereco:true, salvarRelatorio:true, compartilharRelatorio:true};
   }
 
   function carregarPermissoes(){
