@@ -156,6 +156,11 @@
   #permissoesBody td:first-child{text-align:left;font-weight:700;color:var(--ink);}
   #permissoesBody input[type="checkbox"]{width:18px;height:18px;accent-color:var(--dourado);cursor:pointer;}
   .footer-note{color:var(--text-400);font-size:11.5px;text-align:center;margin-top:20px;}
+  .session-countdown{font-size:11.5px;color:var(--text-400);font-variant-numeric:tabular-nums;padding:0 4px;}
+  .session-countdown.perto{color:var(--danger-texto);font-weight:700;}
+  .btn-unlock{background:none;border:1px solid var(--border);color:var(--text-600);border-radius:8px;padding:4px 8px;font-size:11px;cursor:pointer;}
+  .btn-unlock:hover{border-color:var(--danger);color:var(--danger-texto);}
+  .status-bloqueado{color:var(--danger-texto);font-weight:700;font-size:11px;}
   .print-only{display:none;}
 
   .charts-grid{display:grid;grid-template-columns:1fr 1.4fr;grid-template-rows:auto auto;gap:14px;}
@@ -248,6 +253,8 @@
         <h1 id="tituloPainel">Meu bloco</h1>
       </div>
       <div class="topbar-actions">
+        <span class="session-countdown" id="sessaoCountdown" title="Tempo restante antes de precisar logar de novo"></span>
+        <a href="index.html" class="btn btn-secondary" title="Voltar ao Portal Combustível, sem sair">← Portal Combustível</a>
         <button type="button" class="btn btn-destaque" id="btnRelatorio" title="Gerar relatório em PDF pra imprimir ou salvar">🖨 Relatório</button>
         <button type="button" class="btn btn-secondary" id="btnSair" title="Encerrar sessão">Sair</button>
       </div>
@@ -385,7 +392,7 @@
       <p>Controla o que cada bloco pode fazer no painel de rotas/combustível. Por padrão nada muda — só passa a valer quando você desmarcar algo aqui. Marcado = liberado.</p>
       <div class="tbl-wrap" style="margin-top:14px;">
         <table>
-          <thead><tr><th>Bloco</th><th>Acesso liberado</th><th>Editar KM</th><th>Editar preço</th><th>Corrigir endereço</th><th>Salvar relatório</th><th>Compartilhar relatório</th></tr></thead>
+          <thead><tr><th>Bloco</th><th>Acesso liberado</th><th>Editar KM</th><th>Editar preço</th><th>Corrigir endereço</th><th>Salvar relatório</th><th>Compartilhar relatório</th><th>Sessão</th></tr></thead>
           <tbody id="permissoesBody"></tbody>
         </table>
       </div>
@@ -419,6 +426,7 @@
   };
   firebase.initializeApp(firebaseConfig);
   var authFB = firebase.auth();
+  authFB.setPersistence(firebase.auth.Auth.Persistence.SESSION);
   var db = firebase.firestore();
 
   // E-mail "disfarçado" de cada bloco — não é secreto, só serve pra rotear o login pro Firebase.
@@ -459,6 +467,114 @@
     return {cargaExtra: cargaExtra, excessoGasto: excessoGasto, temJustificativa: temJustificativa, teveAumento: teveAumento, critico: critico};
   }
 
+  // ================= SESSÃO ÚNICA POR BLOCO =================
+  var HEARTBEAT_MS = 20000;
+  var HEARTBEAT_VALIDO_MS = 45000;
+  var meuSessionId = null;
+  var heartbeatInterval = null;
+  var sessaoListenerUnsub = null;
+
+  function gerarSessionId(){ return Date.now().toString(36) + Math.random().toString(36).slice(2, 10); }
+
+  function pararMonitorSessao(){
+    if (heartbeatInterval){ clearInterval(heartbeatInterval); heartbeatInterval = null; }
+    if (sessaoListenerUnsub){ sessaoListenerUnsub(); sessaoListenerUnsub = null; }
+  }
+
+  function verificarESessaoUnica(bloco){
+    var ref = db.collection("sessoes_ativas").doc(bloco);
+    return ref.get().then(function(doc){
+      var agora = Date.now();
+      if (!doc.exists) return {permitido:true};
+      var d = doc.data();
+      var bloqueadoAte = d.bloqueadoAte && d.bloqueadoAte.toMillis ? d.bloqueadoAte.toMillis() : 0;
+      if (bloqueadoAte > agora){
+        return {permitido:false, motivo:"bloqueado", minutos: Math.ceil((bloqueadoAte - agora) / 60000)};
+      }
+      var chaveLocal = "sessao_" + bloco.replace(/\s+/g,"_");
+      var sessaoLocalSalva = null;
+      try { sessaoLocalSalva = localStorage.getItem(chaveLocal); } catch(e){}
+      if (sessaoLocalSalva && d.sessionId === sessaoLocalSalva){
+        return {permitido:true};
+      }
+      var heartbeatMs = d.ultimoHeartbeat && d.ultimoHeartbeat.toMillis ? d.ultimoHeartbeat.toMillis() : 0;
+      if (agora - heartbeatMs < HEARTBEAT_VALIDO_MS){
+        var novaTentativas = (d.tentativasConflito || 0) + 1;
+        var update = {tentativasConflito: novaTentativas};
+        var vaiBloquear = novaTentativas >= 3;
+        if (vaiBloquear){
+          var horas = 1 + Math.max(0, novaTentativas - 3) * 3;
+          update.bloqueadoAte = firebase.firestore.Timestamp.fromMillis(agora + horas*3600000);
+        }
+        return ref.set(update, {merge:true}).then(function(){
+          if (vaiBloquear){
+            return {permitido:false, motivo:"bloqueado", minutos: Math.ceil((update.bloqueadoAte.toMillis()-agora)/60000)};
+          }
+          return {permitido:false, motivo:"conflito", tentativas:novaTentativas};
+        });
+      }
+      return {permitido:true};
+    });
+  }
+
+  function registrarSessao(bloco){
+    meuSessionId = gerarSessionId();
+    var chaveLocal = "sessao_" + bloco.replace(/\s+/g,"_");
+    try { localStorage.setItem(chaveLocal, meuSessionId); } catch(e){}
+    var ref = db.collection("sessoes_ativas").doc(bloco);
+    ref.set({
+      sessionId: meuSessionId,
+      ultimoHeartbeat: firebase.firestore.FieldValue.serverTimestamp(),
+      dispositivo: (navigator.userAgent || "").slice(0,80),
+      tentativasConflito: 0,
+      bloqueadoAte: null
+    });
+    heartbeatInterval = setInterval(function(){
+      ref.set({ultimoHeartbeat: firebase.firestore.FieldValue.serverTimestamp()}, {merge:true});
+    }, HEARTBEAT_MS);
+    sessaoListenerUnsub = ref.onSnapshot(function(doc){
+      if (doc.exists && doc.data().sessionId !== meuSessionId){
+        pararMonitorSessao();
+        alert("Sua sessão foi encerrada porque este bloco entrou em outro aparelho.");
+        authFB.signOut();
+      }
+    });
+  }
+
+  function liberarSessaoAtual(){
+    if (!blocoAtual || !meuSessionId) return;
+    db.collection("sessoes_ativas").doc(blocoAtual).set({sessionId: null}, {merge:true}).catch(function(){});
+  }
+
+  // ================= TEMPO DE SESSÃO (30 min de inatividade, ou fechar o navegador) =================
+  var SESSAO_MAX_MS = 30 * 60 * 1000;
+  var ATIVIDADE_KEY = "paineliurd_ultima_atividade";
+  function marcarAtividade(){
+    try { localStorage.setItem(ATIVIDADE_KEY, String(Date.now())); } catch(e){}
+  }
+  ["click","keydown","mousemove","touchstart","scroll"].forEach(function(ev){
+    document.addEventListener(ev, marcarAtividade, {passive:true});
+  });
+  marcarAtividade();
+  setInterval(function(){
+    var el = document.getElementById("sessaoCountdown");
+    var ultima = 0;
+    try { ultima = parseInt(localStorage.getItem(ATIVIDADE_KEY) || "0", 10); } catch(e){}
+    var restanteMs = SESSAO_MAX_MS - (Date.now() - ultima);
+    if (!authFB.currentUser){ if (el) el.textContent = ""; return; }
+    if (restanteMs <= 0){
+      pararMonitorSessao();
+      liberarSessaoAtual();
+      authFB.signOut();
+      return;
+    }
+    if (el){
+      var m = Math.floor(restanteMs/60000), s = Math.floor((restanteMs%60000)/1000);
+      el.textContent = "Sessão expira em " + m + ":" + (s<10?"0":"")+s;
+      el.classList.toggle("perto", restanteMs < 5*60000);
+    }
+  }, 1000);
+
   // ================= LOGIN (Firebase Auth) =================
   function mostrarErroLogin(msg){
     document.getElementById("loginCarregando").hidden = true;
@@ -471,8 +587,28 @@
     user.getIdTokenResult().then(function(tokenResult){
       isAdmin = !!tokenResult.claims.admin;
       blocoAtual = tokenResult.claims.bloco || null;
-      document.getElementById("loginScreen").hidden = true;
-      carregarDadosEIniciar();
+      if (blocoAtual && !isAdmin){
+        verificarESessaoUnica(blocoAtual).then(function(res){
+          if (!res.permitido){
+            pararMonitorSessao();
+            authFB.signOut();
+            if (res.motivo === "bloqueado"){
+              mostrarErroLogin("Bloqueado por segurança — tente de novo em " + res.minutos + " min, ou peça pro administrador desbloquear no Portal ADM.");
+            } else {
+              mostrarErroLogin("Este bloco já está em uso em outro aparelho agora. Mais tentativas assim vão bloquear o acesso temporariamente.");
+            }
+            return;
+          }
+          registrarSessao(blocoAtual);
+          marcarAtividade();
+          document.getElementById("loginScreen").hidden = true;
+          carregarDadosEIniciar();
+        });
+      } else {
+        marcarAtividade();
+        document.getElementById("loginScreen").hidden = true;
+        carregarDadosEIniciar();
+      }
     }).catch(function(err){
       mostrarErroLogin("Não consegui confirmar seu acesso. Tente de novo.");
     });
@@ -484,6 +620,8 @@
     }).catch(function(err){
       if ((err.code === "auth/wrong-password" || err.code === "auth/user-not-found" || err.code === "auth/invalid-credential") && emailFallback){
         tentarLogin(emailFallback, senha, null);
+      } else if (err.code === "auth/too-many-requests"){
+        mostrarErroLogin("Muitas tentativas erradas — o Firebase bloqueou tentativas nessa conta por segurança. Espere alguns minutos e tente de novo.");
       } else if (err.code === "auth/wrong-password" || err.code === "auth/user-not-found" || err.code === "auth/invalid-credential"){
         mostrarErroLogin("Senha incorreta.");
       } else {
@@ -527,6 +665,8 @@
   });
 
   document.getElementById("btnSair").addEventListener("click", function(){
+    liberarSessaoAtual();
+    pararMonitorSessao();
     authFB.signOut();
   });
 
@@ -536,6 +676,7 @@
     if (user){
       finalizarLogin(user);
     } else {
+      pararMonitorSessao();
       isAdmin = false; blocoAtual = null; RAW = []; KM_RAW = [];
       document.getElementById("mainContent").hidden = true;
       document.getElementById("loginSenha").value = "";
@@ -1071,20 +1212,23 @@
 
   function carregarPermissoes(){
     var tbody = document.getElementById("permissoesBody");
-    tbody.innerHTML = "<tr><td colspan=\"7\" class=\"muted\">Carregando…</td></tr>";
+    tbody.innerHTML = "<tr><td colspan=\"8\" class=\"muted\">Carregando…</td></tr>";
     var promessas = BLOCOS_LISTA.map(function(bloco){
-      return db.collection("permissoes").doc(bloco).get().then(function(doc){
+      var pPerm = db.collection("permissoes").doc(bloco).get();
+      var pSessao = db.collection("sessoes_ativas").doc(bloco).get();
+      return Promise.all([pPerm, pSessao]).then(function(res){
         var padrao = permissoesPadrao();
-        var salvo = doc.exists ? doc.data() : {};
+        var salvo = res[0].exists ? res[0].data() : {};
         var dados = {};
         Object.keys(padrao).forEach(function(k){ dados[k] = (salvo[k] !== undefined) ? salvo[k] : padrao[k]; });
-        return {bloco: bloco, dados: dados};
+        var sessao = res[1].exists ? res[1].data() : null;
+        return {bloco: bloco, dados: dados, sessao: sessao};
       });
     });
     Promise.all(promessas).then(function(lista){
       renderPermissoes(lista);
     }).catch(function(err){
-      tbody.innerHTML = "<tr><td colspan=\"7\" class=\"muted\">Não consegui carregar: " + err.message + "</td></tr>";
+      tbody.innerHTML = "<tr><td colspan=\"8\" class=\"muted\">Não consegui carregar: " + err.message + "</td></tr>";
     });
   }
 
@@ -1117,7 +1261,39 @@
         tr.appendChild(td);
       });
 
+      var tdSessao = document.createElement("td");
+      var agora = Date.now();
+      var bloqueadoAte = item.sessao && item.sessao.bloqueadoAte && item.sessao.bloqueadoAte.toMillis ? item.sessao.bloqueadoAte.toMillis() : 0;
+      var heartbeat = item.sessao && item.sessao.ultimoHeartbeat && item.sessao.ultimoHeartbeat.toMillis ? item.sessao.ultimoHeartbeat.toMillis() : 0;
+      if (bloqueadoAte > agora){
+        var min = Math.ceil((bloqueadoAte - agora) / 60000);
+        tdSessao.innerHTML = '<span class="status-bloqueado">🔒 Bloqueado (' + min + ' min)</span>';
+        var btnDesb = document.createElement("button");
+        btnDesb.type = "button"; btnDesb.className = "btn-unlock"; btnDesb.textContent = "Desbloquear";
+        btnDesb.style.marginLeft = "6px";
+        btnDesb.addEventListener("click", function(){ desbloquearBloco(item.bloco); });
+        tdSessao.appendChild(btnDesb);
+      } else if (agora - heartbeat < 45000){
+        tdSessao.innerHTML = '<span style="color:var(--dourado-clara);">● Em uso agora</span>';
+      } else {
+        tdSessao.innerHTML = '<span class="muted">Livre</span>';
+      }
+      tr.appendChild(tdSessao);
+
       tbody.appendChild(tr);
+    });
+  }
+
+  function desbloquearBloco(bloco){
+    var status = document.getElementById("permissoesStatus");
+    status.textContent = "Desbloqueando " + bloco + "…";
+    db.collection("sessoes_ativas").doc(bloco).set({
+      bloqueadoAte: null, tentativasConflito: 0, sessionId: null
+    }, {merge:true}).then(function(){
+      status.textContent = "Desbloqueado: " + bloco + " · " + new Date().toLocaleTimeString("pt-BR");
+      carregarPermissoes();
+    }).catch(function(err){
+      status.textContent = "Erro ao desbloquear " + bloco + ": " + err.message;
     });
   }
 
