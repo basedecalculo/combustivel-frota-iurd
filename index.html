@@ -292,6 +292,8 @@
     background:var(--card);color:var(--ink);padding:11px 10px;font-size:15px;
     font-family:var(--font-body);margin-top:6px;
   }
+  select option{color:#12161c;background:#fff;}
+  select optgroup{color:#12161c;background:#fff;font-weight:700;font-style:normal;}
   select:focus-visible{outline:2.5px solid var(--verde);outline-offset:2px;}
 
   /* ---------- compartilhar destacado ---------- */
@@ -536,6 +538,7 @@
         <div class="input-suffix">
           <select id="loginPerfil">
             <option value="">Acesso geral (qualquer veículo)</option>
+            <optgroup label="BLOCOS">
             <option value="ABOLICAO">ABOLICAO</option>
             <option value="ADMRJ">ADMRJ</option>
             <option value="ALCANTARA">ALCANTARA</option>
@@ -559,6 +562,7 @@
             <option value="RECREIO">RECREIO</option>
             <option value="SANTA CRUZ I">SANTA CRUZ I</option>
             <option value="TAQUARA">TAQUARA</option>
+            </optgroup>
           </select>
         </div>
       </div>
