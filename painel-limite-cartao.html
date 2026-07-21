@@ -156,6 +156,18 @@
   #permissoesBody td:first-child{text-align:left;font-weight:700;color:var(--ink);}
   #permissoesBody input[type="checkbox"]{width:18px;height:18px;accent-color:var(--dourado);cursor:pointer;}
   .footer-note{color:var(--text-400);font-size:11.5px;text-align:center;margin-top:20px;}
+
+  /* ---------- modo visitante ---------- */
+  .modo-visitante #btnRelatorio, .modo-visitante #shareRow{display:none !important;}
+  #watermarkVisitante{
+    position:fixed;inset:0;z-index:9000;pointer-events:none;
+    display:flex;align-items:center;justify-content:center;flex-wrap:wrap;
+    overflow:hidden;opacity:0.09;
+  }
+  #watermarkVisitante span{
+    display:block;transform:rotate(-28deg);font-size:22px;font-weight:800;color:#fff;
+    white-space:nowrap;padding:40px;
+  }
   .session-countdown{font-size:11.5px;color:var(--text-400);font-variant-numeric:tabular-nums;padding:0 4px;}
   .session-countdown.perto{color:var(--danger-texto);font-weight:700;}
   .btn-unlock{background:none;border:1px solid var(--border);color:var(--text-600);border-radius:8px;padding:4px 8px;font-size:11px;cursor:pointer;}
@@ -202,6 +214,7 @@
 </style>
 </head>
 <body>
+<div id="watermarkVisitante" hidden></div>
 
 <div id="loginScreen" class="gate-overlay">
   <div class="gate-card card">
@@ -392,7 +405,7 @@
       <p>Controla o que cada bloco pode fazer no painel de rotas/combustível. Por padrão nada muda — só passa a valer quando você desmarcar algo aqui. Marcado = liberado.</p>
       <div class="tbl-wrap" style="margin-top:14px;">
         <table>
-          <thead><tr><th>Bloco</th><th>Acesso liberado</th><th>Editar KM</th><th>Editar preço</th><th>Corrigir endereço</th><th>Salvar relatório</th><th>Compartilhar relatório</th><th>Sessão</th></tr></thead>
+          <thead><tr><th>Bloco</th><th>Acesso liberado</th><th>Editar KM</th><th>Editar preço</th><th>Corrigir endereço</th><th>Salvar relatório</th><th>Compartilhar relatório</th><th>Sessão</th><th>Senha</th></tr></thead>
           <tbody id="permissoesBody"></tbody>
         </table>
       </div>
@@ -443,7 +456,41 @@
   };
 
   var isAdmin = false;
+  var isVisitante = false;
   var blocoAtual = null;
+
+  // ================= BLOQUEIO POR SENHA ERRADA (separado do bloqueio por dispositivo) =================
+  var SENHA_BLOQUEIO_INICIAL_MS = 30 * 60 * 1000;
+  var SENHA_BLOQUEIO_ESCALADA_MS = 3 * 60 * 60 * 1000;
+  function emailParaDocId(email){ return email.replace(/[.\/]/g, "_"); }
+  function checarBloqueioSenha(email){
+    return db.collection("tentativas_senha").doc(emailParaDocId(email)).get().then(function(doc){
+      if (!doc.exists) return {bloqueado:false};
+      var d = doc.data();
+      var agora = Date.now();
+      if (d.bloqueadoAte && d.bloqueadoAte > agora){
+        return {bloqueado:true, minutos: Math.ceil((d.bloqueadoAte - agora)/60000)};
+      }
+      return {bloqueado:false};
+    }).catch(function(){ return {bloqueado:false}; });
+  }
+  function registrarFalhaSenha(email){
+    var ref = db.collection("tentativas_senha").doc(emailParaDocId(email));
+    return ref.get().then(function(doc){
+      var d = doc.exists ? doc.data() : {falhas:0, bloqueadoAte:null};
+      var falhas = (d.falhas || 0) + 1;
+      var agora = Date.now();
+      var bloqueadoAte = d.bloqueadoAte || null;
+      var jaEstavaBloqueado = bloqueadoAte && bloqueadoAte > agora;
+      if (jaEstavaBloqueado){ bloqueadoAte = agora + SENHA_BLOQUEIO_ESCALADA_MS; }
+      else if (falhas >= 3){ bloqueadoAte = agora + SENHA_BLOQUEIO_INICIAL_MS; }
+      ref.set({falhas: falhas, bloqueadoAte: bloqueadoAte, ultimaTentativa: agora});
+      return {falhas: falhas, bloqueadoAte: bloqueadoAte};
+    });
+  }
+  function limparFalhasSenha(email){
+    db.collection("tentativas_senha").doc(emailParaDocId(email)).set({falhas:0, bloqueadoAte:null, ultimaTentativa:Date.now()});
+  }
 
   function fmtBRL(v){
     return "R$ " + (v||0).toLocaleString("pt-BR", {minimumFractionDigits:2, maximumFractionDigits:2});
@@ -586,6 +633,7 @@
   function finalizarLogin(user){
     user.getIdTokenResult().then(function(tokenResult){
       isAdmin = !!tokenResult.claims.admin;
+      isVisitante = !!tokenResult.claims.visitante;
       blocoAtual = tokenResult.claims.bloco || null;
       if (blocoAtual && !isAdmin){
         verificarESessaoUnica(blocoAtual).then(function(res){
@@ -614,16 +662,26 @@
     });
   }
 
-  function tentarLogin(email, senha, emailFallback){
+  function tentarLogin(email, senha, emailFallback, emailPrincipal){
+    var contaPrincipal = emailPrincipal || email;
     authFB.signInWithEmailAndPassword(email, senha).then(function(cred){
+      limparFalhasSenha(contaPrincipal);
       finalizarLogin(cred.user);
     }).catch(function(err){
       if ((err.code === "auth/wrong-password" || err.code === "auth/user-not-found" || err.code === "auth/invalid-credential") && emailFallback){
-        tentarLogin(emailFallback, senha, null);
+        tentarLogin(emailFallback, senha, null, contaPrincipal);
       } else if (err.code === "auth/too-many-requests"){
         mostrarErroLogin("Muitas tentativas erradas — o Firebase bloqueou tentativas nessa conta por segurança. Espere alguns minutos e tente de novo.");
       } else if (err.code === "auth/wrong-password" || err.code === "auth/user-not-found" || err.code === "auth/invalid-credential"){
-        mostrarErroLogin("Senha incorreta.");
+        registrarFalhaSenha(contaPrincipal).then(function(r){
+          if (r.falhas === 2){
+            mostrarErroLogin("Senha incorreta. Mais 1 tentativa errada e a conta é bloqueada por 30 min.");
+          } else if (r.bloqueadoAte && r.bloqueadoAte > Date.now()){
+            mostrarErroLogin("Senha incorreta 3 vezes. Bloqueado por " + Math.ceil((r.bloqueadoAte-Date.now())/60000) + " min.");
+          } else {
+            mostrarErroLogin("Senha incorreta.");
+          }
+        });
       } else {
         // erro de configuração (domínio não autorizado, projeto, etc.) — mostra o real pra dar pra diagnosticar
         mostrarErroLogin("Erro (" + err.code + "): " + err.message);
@@ -652,13 +710,19 @@
     document.getElementById("loginError").hidden = true;
     if (!modoAdmin && !perfil){ mostrarErroLogin("Escolha o seu bloco na lista."); return; }
     if (!senha){ mostrarErroLogin("Digite a senha."); return; }
+    var emailAlvo = modoAdmin ? "admin.principal@paineliurd.app" : BLOCO_EMAIL[perfil];
     document.getElementById("loginCarregando").hidden = false;
-    if (modoAdmin){
-      tentarLogin("admin.principal@paineliurd.app", senha, "admin.auxiliar@paineliurd.app");
-    } else {
-      var email = BLOCO_EMAIL[perfil];
-      tentarLogin(email, senha, null);
-    }
+    checarBloqueioSenha(emailAlvo).then(function(chk){
+      if (chk.bloqueado){
+        mostrarErroLogin("Bloqueado por senhas erradas — tente de novo em " + chk.minutos + " min, ou peça pro administrador desbloquear.");
+        return;
+      }
+      if (modoAdmin){
+        tentarLogin("admin.principal@paineliurd.app", senha, "admin.auxiliar@paineliurd.app");
+      } else {
+        tentarLogin(emailAlvo, senha, null);
+      }
+    });
   });
   document.getElementById("loginSenha").addEventListener("keydown", function(ev){
     if (ev.key === "Enter") document.getElementById("btnEntrar").click();
@@ -696,8 +760,9 @@
   }
 
   function carregarDadosEIniciar(){
-    var qSolic = isAdmin ? db.collection("solicitacoes") : db.collection("solicitacoes").where("bloco", "==", blocoAtual);
-    var qKm = isAdmin ? db.collection("km") : db.collection("km").where("bloco", "==", blocoAtual);
+    var podeVerTudo = isAdmin || isVisitante;
+    var qSolic = podeVerTudo ? db.collection("solicitacoes") : db.collection("solicitacoes").where("bloco", "==", blocoAtual);
+    var qKm = podeVerTudo ? db.collection("km") : db.collection("km").where("bloco", "==", blocoAtual);
     Promise.all([qSolic.get(), qKm.get()]).then(function(res){
       RAW = res[0].docs.map(docParaLinhaSolicitacao);
       KM_RAW = res[1].docs.map(docParaLinhaKm);
@@ -722,13 +787,33 @@
     }).join("");
   }
 
+  var watermarkInterval = null;
+  function iniciarWatermark(){
+    function desenhar(){
+      var texto = "VISITANTE — " + new Date().toLocaleString("pt-BR");
+      var el = document.getElementById("watermarkVisitante");
+      el.innerHTML = "";
+      for (var i = 0; i < 24; i++){
+        var s = document.createElement("span");
+        s.textContent = texto;
+        el.appendChild(s);
+      }
+    }
+    desenhar();
+    if (watermarkInterval) clearInterval(watermarkInterval);
+    watermarkInterval = setInterval(desenhar, 60000);
+  }
+
   function iniciarPainel(){
-    document.getElementById("modoLabel").textContent = isAdmin ? "Painel do administrador" : "Painel do solicitante";
-    document.getElementById("tituloPainel").textContent = isAdmin ? "Visão consolidada" : blocoAtual;
+    document.getElementById("modoLabel").textContent = isVisitante ? "Visitante (somente visualização)" : (isAdmin ? "Painel do administrador" : "Painel do solicitante");
+    document.getElementById("tituloPainel").textContent = (isAdmin || isVisitante) ? "Visão consolidada" : blocoAtual;
     document.getElementById("rankingsWrap").hidden = !isAdmin;
     document.getElementById("cardPermissoes").hidden = !isAdmin;
     document.getElementById("cardRankPlacas").hidden = false;
     document.getElementById("mainContent").hidden = false;
+    document.getElementById("watermarkVisitante").hidden = !isVisitante;
+    document.body.classList.toggle("modo-visitante", isVisitante);
+    if (isVisitante) iniciarWatermark();
     renderKPIs();
     renderAlertas();
     renderErros();
@@ -1212,23 +1297,26 @@
 
   function carregarPermissoes(){
     var tbody = document.getElementById("permissoesBody");
-    tbody.innerHTML = "<tr><td colspan=\"8\" class=\"muted\">Carregando…</td></tr>";
+    tbody.innerHTML = "<tr><td colspan=\"9\" class=\"muted\">Carregando…</td></tr>";
     var promessas = BLOCOS_LISTA.map(function(bloco){
+      var email = BLOCO_EMAIL[bloco];
       var pPerm = db.collection("permissoes").doc(bloco).get();
       var pSessao = db.collection("sessoes_ativas").doc(bloco).get();
-      return Promise.all([pPerm, pSessao]).then(function(res){
+      var pSenha = db.collection("tentativas_senha").doc(emailParaDocId(email)).get();
+      return Promise.all([pPerm, pSessao, pSenha]).then(function(res){
         var padrao = permissoesPadrao();
         var salvo = res[0].exists ? res[0].data() : {};
         var dados = {};
         Object.keys(padrao).forEach(function(k){ dados[k] = (salvo[k] !== undefined) ? salvo[k] : padrao[k]; });
         var sessao = res[1].exists ? res[1].data() : null;
-        return {bloco: bloco, dados: dados, sessao: sessao};
+        var senhaBloqueio = res[2].exists ? res[2].data() : null;
+        return {bloco: bloco, dados: dados, sessao: sessao, senhaBloqueio: senhaBloqueio};
       });
     });
     Promise.all(promessas).then(function(lista){
       renderPermissoes(lista);
     }).catch(function(err){
-      tbody.innerHTML = "<tr><td colspan=\"8\" class=\"muted\">Não consegui carregar: " + err.message + "</td></tr>";
+      tbody.innerHTML = "<tr><td colspan=\"9\" class=\"muted\">Não consegui carregar: " + err.message + "</td></tr>";
     });
   }
 
@@ -1280,7 +1368,37 @@
       }
       tr.appendChild(tdSessao);
 
+      var tdSenha = document.createElement("td");
+      var agoraS = Date.now();
+      var senhaBloqueadoAte = item.senhaBloqueio && item.senhaBloqueio.bloqueadoAte ? item.senhaBloqueio.bloqueadoAte : 0;
+      if (senhaBloqueadoAte > agoraS){
+        var minS = Math.ceil((senhaBloqueadoAte - agoraS) / 60000);
+        tdSenha.innerHTML = '<span class="status-bloqueado">🔒 Bloqueado (' + minS + ' min)</span>';
+        var btnDesbS = document.createElement("button");
+        btnDesbS.type = "button"; btnDesbS.className = "btn-unlock"; btnDesbS.textContent = "Desbloquear";
+        btnDesbS.style.marginLeft = "6px";
+        btnDesbS.addEventListener("click", function(){ desbloquearSenha(item.bloco); });
+        tdSenha.appendChild(btnDesbS);
+      } else {
+        tdSenha.innerHTML = '<span class="muted">OK</span>';
+      }
+      tr.appendChild(tdSenha);
+
       tbody.appendChild(tr);
+    });
+  }
+
+  function desbloquearSenha(bloco){
+    var status = document.getElementById("permissoesStatus");
+    var email = BLOCO_EMAIL[bloco];
+    status.textContent = "Desbloqueando senha de " + bloco + "…";
+    db.collection("tentativas_senha").doc(emailParaDocId(email)).set({
+      falhas: 0, bloqueadoAte: null
+    }, {merge:true}).then(function(){
+      status.textContent = "Senha desbloqueada: " + bloco + " · " + new Date().toLocaleTimeString("pt-BR");
+      carregarPermissoes();
+    }).catch(function(err){
+      status.textContent = "Erro ao desbloquear senha de " + bloco + ": " + err.message;
     });
   }
 
