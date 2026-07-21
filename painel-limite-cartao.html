@@ -160,7 +160,9 @@
   }
 
   /* tables */
-  .tbl-wrap{overflow-x:auto;border-radius:var(--radius-md);border:1px solid var(--border);}
+  .tbl-wrap{overflow-x:auto;overflow-y:auto;max-height:340px;border-radius:var(--radius-md);border:1px solid var(--border);}
+  .tbl-wrap::-webkit-scrollbar{width:9px;height:9px;}
+  .tbl-wrap::-webkit-scrollbar-thumb{background:rgba(120,220,180,0.3);border-radius:99px;}
   table{width:100%;border-collapse:collapse;font-size:12.5px;white-space:nowrap;}
   th{background:var(--card-solid);color:var(--text-600);text-align:left;padding:9px 10px;font-size:10.5px;
     white-space:normal;vertical-align:bottom;line-height:1.25;
@@ -228,7 +230,19 @@
   @media (max-width:640px){ .clima-widget{padding:6px 10px;gap:7px;} .cw-icone{font-size:24px;} .cw-hora{font-size:13px;} }
 
   /* ---------- modo visitante ---------- */
-  .modo-visitante #btnRelatorio, .modo-visitante #shareRow, .modo-visitante .card-tools [data-export-chart]{display:none !important;}
+  .modo-visitante #btnRelatorio, .modo-visitante #shareRow, .modo-visitante .card-tools [data-export-chart], .modo-visitante #btnExcelKm, .modo-visitante #btnExcelDet, .modo-visitante [data-print-card], .modo-visitante [data-export-chart]{display:none !important;}
+  /* impressão de um cartão só */
+  @media print{
+    body.print-mode .card{display:none !important;}
+    body.print-mode .card.card-imprimindo{display:block !important;box-shadow:none;border-color:#999;}
+    body.print-mode .topbar, body.print-mode #kpiGrid, body.print-mode .charts-grid,
+    body.print-mode .share-row, body.print-mode .session-countdown, body.print-mode #watermarkVisitante,
+    body.print-mode .clima-widget{display:none !important;}
+    body.print-mode{background:#fff !important;}
+    body.print-mode .card.card-imprimindo, body.print-mode .card.card-imprimindo *{color:#111 !important;}
+    body.print-mode .card.card-imprimindo .tbl-wrap{max-height:none !important;overflow:visible !important;}
+  }
+
   #watermarkVisitante{
     position:fixed;inset:0;z-index:9000;pointer-events:none;
     display:flex;align-items:center;justify-content:center;flex-wrap:wrap;
@@ -545,13 +559,39 @@
           <option value="excesso">🔵 Acima de 1.000 km</option>
           <option value="ok">✅ Dentro do padrão</option>
         </select>
+        <select id="fBlocoKm"><option value="">Bloco: todos</option></select>
+        <select id="fFaixaKm">
+          <option value="">KM: todas as faixas</option>
+          <option value="a">até 500 km</option>
+          <option value="b">500 – 1.000 km</option>
+          <option value="c">1.000 – 5.000 km</option>
+          <option value="d">acima de 5.000 km</option>
+        </select>
+        <select id="fTopKm">
+          <option value="10">Exibir: Top 10</option>
+          <option value="25">Exibir: Top 25</option>
+          <option value="0">Exibir: todos</option>
+        </select>
+        <div class="seg" data-vis="km">
+          <button type="button" class="seg-btn ativo" data-v="tabela">Tabela</button>
+          <button type="button" class="seg-btn" data-v="grafico">Gráfico</button>
+        </div>
+        <div class="seg" data-alt="km">
+          <button type="button" class="seg-btn ativo" data-v="bar">Barra</button>
+          <button type="button" class="seg-btn" data-v="column">Coluna</button>
+          <button type="button" class="seg-btn" data-v="doughnut">Rosca</button>
+        </div>
+        <button type="button" class="tool-chip" id="btnExcelKm">⬇ Excel</button>
+        <button type="button" class="tool-chip" data-export-chart="chartKmTop">⬇ PNG</button>
+        <button type="button" class="tool-chip" data-print-card>🖨 Imprimir</button>
       </div>
-      <div class="tbl-wrap">
+      <div class="tbl-wrap" id="kmTabelaWrap">
         <table>
           <thead><tr><th>Placa</th><th>Bloco</th><th>Região</th><th>Igreja</th><th class="num">KM início</th><th class="num">KM fim</th><th class="num">KM rodado</th><th>Status</th></tr></thead>
           <tbody id="tabelaKmBody"></tbody>
         </table>
       </div>
+      <div class="chart-canvas-wrap" id="kmGraficoWrap" hidden><canvas id="chartKmTop"></canvas></div>
       <p id="tabelaKmContagem" style="margin-top:10px;"></p>
     </div>
 
@@ -566,13 +606,38 @@
           <option value="excesso">🔵 Aumento (com justificativa)</option>
           <option value="ok">✅ Dentro do padrão</option>
         </select>
+        <select id="fPeriodo">
+          <option value="">Período: todo o ciclo</option>
+          <option value="q1">15/06 – 30/06</option>
+          <option value="q2">01/07 – 14/07</option>
+          <option value="u7">Últimos 7 dias do ciclo</option>
+        </select>
+        <select id="fBlocoDet"><option value="">Bloco: todos</option></select>
+        <select id="fTopDet">
+          <option value="10">Exibir: Top 10</option>
+          <option value="25">Exibir: Top 25</option>
+          <option value="0">Exibir: todos</option>
+        </select>
+        <div class="seg" data-vis="det">
+          <button type="button" class="seg-btn ativo" data-v="tabela">Tabela</button>
+          <button type="button" class="seg-btn" data-v="grafico">Gráfico</button>
+        </div>
+        <div class="seg" data-alt="det">
+          <button type="button" class="seg-btn ativo" data-v="bar">Barra</button>
+          <button type="button" class="seg-btn" data-v="column">Coluna</button>
+          <button type="button" class="seg-btn" data-v="doughnut">Rosca</button>
+        </div>
+        <button type="button" class="tool-chip" id="btnExcelDet">⬇ Excel</button>
+        <button type="button" class="tool-chip" data-export-chart="chartDetTop">⬇ PNG</button>
+        <button type="button" class="tool-chip" data-print-card>🖨 Imprimir</button>
       </div>
-      <div class="tbl-wrap">
+      <div class="tbl-wrap" id="detTabelaWrap">
         <table>
           <thead><tr><th>Data</th><th>Tipo</th><th>Bloco</th><th>Região</th><th>Igreja</th><th>Placa</th><th>Anterior</th><th>Novo</th><th>Aumento</th><th>Status</th></tr></thead>
           <tbody id="tabelaBody"></tbody>
         </table>
       </div>
+      <div class="chart-canvas-wrap" id="detGraficoWrap" hidden><canvas id="chartDetTop"></canvas></div>
       <p id="tabelaContagem" style="margin-top:10px;"></p>
     </div>
 
@@ -1410,15 +1475,42 @@
         '<td class="num">' + kmCelula(r[6], "erro") + '</td></tr>';
     }).join("");
   }
+  var ultimoFiltradoKm = [];
+  function popularBlocos(selectId, lista, idxBloco){
+    var sel = document.getElementById(selectId);
+    if (!sel || sel.options.length > 1) return;
+    var vistos = {};
+    lista.forEach(function(r){ vistos[r[idxBloco]] = true; });
+    Object.keys(vistos).sort().forEach(function(b){
+      var o = document.createElement("option"); o.value = b; o.textContent = b; sel.appendChild(o);
+    });
+  }
   function renderTabelaKm(){
     var base = dadosKmAtuais(); // agora mostra TODOS os status na tabela principal — nada fica escondido
+    popularBlocos("fBlocoKm", base, 1);
     var busca = document.getElementById("fBuscaKm").value.trim().toLowerCase();
     var fStatus = document.getElementById("fStatusKm").value;
+    var fBloco = document.getElementById("fBlocoKm").value;
+    var fFaixa = document.getElementById("fFaixaKm").value;
     var filtrado = base.filter(function(r){
       if (fStatus && r[7] !== fStatus) return false;
+      if (fBloco && r[1] !== fBloco) return false;
+      if (fFaixa){
+        var km = r[6];
+        if (fFaixa === "a" && !(km <= 500)) return false;
+        if (fFaixa === "b" && !(km > 500 && km <= 1000)) return false;
+        if (fFaixa === "c" && !(km > 1000 && km <= 5000)) return false;
+        if (fFaixa === "d" && !(km > 5000)) return false;
+      }
       if (busca && r[0].toLowerCase().indexOf(busca) === -1) return false;
       return true;
     });
+    var topKm = parseInt(document.getElementById("fTopKm").value, 10);
+    if (topKm > 0){
+      filtrado = filtrado.slice().sort(function(a,b){ return b[6]-a[6]; }).slice(0, topKm);
+    }
+    ultimoFiltradoKm = filtrado;
+    renderGraficoKm(filtrado);
     filtrado.sort(function(a,b){ return b[6]-a[6]; });
     var LIMITE = 200;
     document.getElementById("tabelaKmBody").innerHTML = filtrado.slice(0,LIMITE).map(function(r){
@@ -1438,7 +1530,7 @@
     renderErrosKm();
     renderTabelaKm();
   }
-  ["fBuscaKm","fStatusKm"].forEach(function(id){
+  ["fBuscaKm","fStatusKm","fBlocoKm","fFaixaKm","fTopKm"].forEach(function(id){
     document.getElementById(id).addEventListener("input", renderTabelaKm);
     document.getElementById(id).addEventListener("change", renderTabelaKm);
   });
@@ -1457,21 +1549,47 @@
     return '<span class="badge badge-neutral">renovação</span>';
   }
 
+  var ultimoFiltradoDet = [];
+  function dataParaNum(s){
+    var p = String(s || "").split("/");
+    if (p.length < 3) return 0;
+    return parseInt(p[2],10)*10000 + parseInt(p[1],10)*100 + parseInt(p[0],10);
+  }
   function renderTabela(){
     var base = dadosAtuais();
+    popularBlocos("fBlocoDet", base, 4);
     var busca = document.getElementById("fBusca").value.trim().toLowerCase();
     var fTipo = document.getElementById("fTipo").value;
     var fStatus = document.getElementById("fStatus").value;
+    var fPeriodo = document.getElementById("fPeriodo").value;
+    var fBloco = document.getElementById("fBlocoDet").value;
+    var maiorData = 0;
+    if (fPeriodo === "u7"){
+      base.forEach(function(r){ var n = dataParaNum(r[0]); if (n > maiorData) maiorData = n; });
+    }
 
     var filtrado = base.filter(function(r){
       if (fTipo && r[1] !== fTipo) return false;
       if (fStatus && statusDe(r) !== fStatus) return false;
+      if (fBloco && r[4] !== fBloco) return false;
+      if (fPeriodo){
+        var n = dataParaNum(r[0]);
+        if (fPeriodo === "q1" && !(n >= 20260615 && n <= 20260630)) return false;
+        if (fPeriodo === "q2" && !(n >= 20260701 && n <= 20260714)) return false;
+        if (fPeriodo === "u7" && !(n >= maiorData - 7)) return false;
+      }
       if (busca){
         var alvo = (r[7] + " " + r[4] + " " + r[6] + " " + r[15]).toLowerCase();
         if (alvo.indexOf(busca) === -1) return false;
       }
       return true;
     });
+    var topDet = parseInt(document.getElementById("fTopDet").value, 10);
+    if (topDet > 0){
+      filtrado = filtrado.slice().sort(function(a,b){ return (deriva(b).cargaExtra||0) - (deriva(a).cargaExtra||0); }).slice(0, topDet);
+    }
+    ultimoFiltradoDet = filtrado;
+    renderGraficoDet(filtrado);
 
     var body = document.getElementById("tabelaBody");
     var LIMITE = 300;
@@ -1500,7 +1618,7 @@
       "Mostrando " + Math.min(LIMITE, filtrado.length) + " de " + filtrado.length + " registros" + (filtrado.length>LIMITE ? " (refine a busca para ver mais específico, ou exporte para ver tudo)" : "") + ".";
   }
 
-  ["fBusca","fTipo","fStatus"].forEach(function(id){
+  ["fBusca","fTipo","fStatus","fPeriodo","fBlocoDet","fTopDet"].forEach(function(id){
     document.getElementById(id).addEventListener("input", renderTabela);
     document.getElementById(id).addEventListener("change", renderTabela);
   });
@@ -1794,6 +1912,137 @@
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+  });
+
+
+  // ===== visualização alternativa: Top 10 em gráfico, alternável com a tabela =====
+  var visAtual = { km: "tabela", det: "tabela" };
+  var tipoAlt = { km: "bar", det: "bar" };
+  var PALETA_ALT = ["#001e73","#0070b2","#565080","#007d5e","#a2252c","#643200","#519DCA","#8079A8","#51A691","#D8B573"];
+  function renderGraficoKm(filtrado){
+    if (visAtual.km !== "grafico") return;
+    var top = filtrado.slice().sort(function(a,b){ return b[6]-a[6]; }).slice(0,10);
+    var ctx = document.getElementById("chartKmTop").getContext("2d");
+    if (chartInstances.kmTop) chartInstances.kmTop.destroy();
+    var tKm = tipoAlt.km, kmRosca = tKm === "doughnut", kmColuna = tKm === "column";
+    chartInstances.kmTop = new Chart(ctx, {
+      type: kmRosca ? "doughnut" : "bar",
+      data: { labels: top.map(function(r){ return m(r[0]); }),
+        datasets: [{ data: top.map(function(r){ return r[6]; }),
+          backgroundColor: kmRosca ? PALETA_ALT : top.map(function(r){ return r[7]==="erro" ? "#a2252c" : (r[7]==="excesso" ? "#0070b2" : "#007d5e"); }),
+          borderColor: kmRosca ? "#101A30" : undefined, borderWidth: kmRosca ? 2 : 0,
+          borderRadius: kmRosca ? 0 : 6, maxBarThickness: 22 }] },
+      options: { indexAxis: kmColuna ? "x" : "y", responsive: true, maintainAspectRatio: false,
+        cutout: kmRosca ? "58%" : 0,
+        plugins: { legend: { display: kmRosca, position: "bottom", labels: { boxWidth:9, padding:7, font:{size:9} } },
+          tooltip: tooltipDash("KM rodado no ciclo", function(idx){
+            var r = top[idx]; if (!r) return null;
+            return ctdRow("Placa", m(r[0])) + ctdRow("Bloco", r[1]) + ctdRow("KM rodado", fmtNum(r[6]) + " km") + ctdRow("Início → fim", fmtNum(r[4]) + " → " + fmtNum(r[5]));
+          }, "Vermelho = provável erro de digitação · Azul = acima de 1.000 km · Verde = no padrão") },
+        scales: kmRosca ? {} : (kmColuna
+          ? { y: { grid: { color: "rgba(255,255,255,0.07)" }, ticks: { font:{size:10} } }, x: { grid: { display:false }, ticks: { font:{size:9.5}, maxRotation:45, minRotation:45 } } }
+          : { x: { grid: { color: "rgba(255,255,255,0.07)" }, ticks: { font:{size:10} } }, y: { grid: { display:false }, ticks: { font:{size:10.5} } } }) }
+    });
+  }
+  function renderGraficoDet(filtrado){
+    if (visAtual.det !== "grafico") return;
+    var mapa = {};
+    filtrado.forEach(function(r){
+      var d = deriva(r);
+      if (!d.cargaExtra) return;
+      var chave = m(r[7]);
+      mapa[chave] = (mapa[chave] || 0) + d.cargaExtra;
+    });
+    var top = Object.keys(mapa).map(function(k){ return [k, mapa[k]]; }).sort(function(a,b){ return b[1]-a[1]; }).slice(0,10);
+    var ctx = document.getElementById("chartDetTop").getContext("2d");
+    if (chartInstances.detTop) chartInstances.detTop.destroy();
+    var tDet = tipoAlt.det, detRosca = tDet === "doughnut", detColuna = tDet === "column";
+    chartInstances.detTop = new Chart(ctx, {
+      type: detRosca ? "doughnut" : "bar",
+      data: { labels: top.map(function(t){ return t[0]; }),
+        datasets: [{ data: top.map(function(t){ return t[1]; }),
+          backgroundColor: detRosca ? PALETA_ALT : "#0070b2",
+          borderColor: detRosca ? "#101A30" : undefined, borderWidth: detRosca ? 2 : 0,
+          borderRadius: detRosca ? 0 : 6, maxBarThickness: 22, hoverBackgroundColor: detRosca ? undefined : "#519DCA" }] },
+      options: { indexAxis: detColuna ? "x" : "y", responsive: true, maintainAspectRatio: false,
+        cutout: detRosca ? "58%" : 0,
+        plugins: { legend: { display: detRosca, position: "bottom", labels: { boxWidth:9, padding:7, font:{size:9} } },
+          tooltip: tooltipDash("Placa — carga extra (filtro atual)", function(idx){
+            var t = top[idx]; if (!t) return null;
+            return ctdRow("Placa", t[0]) + ctdRow("Carga extra", fmtBRL(t[1]));
+          }, "Top 10 dentro do filtro aplicado na tabela.") },
+        scales: detRosca ? {} : (detColuna
+          ? { y: { grid: { color: "rgba(255,255,255,0.07)" }, ticks: { callback: function(v){ return fmtBRL(v); }, font:{size:10} } }, x: { grid: { display:false }, ticks: { font:{size:9.5}, maxRotation:45, minRotation:45 } } }
+          : { x: { grid: { color: "rgba(255,255,255,0.07)" }, ticks: { callback: function(v){ return fmtBRL(v); }, font:{size:10} } }, y: { grid: { display:false }, ticks: { font:{size:10.5} } } }) }
+    });
+  }
+  document.addEventListener("click", function(ev){
+    var btnAlt = ev.target.closest(".seg[data-alt] .seg-btn");
+    if (btnAlt){
+      var segA = btnAlt.closest(".seg");
+      var qualA = segA.getAttribute("data-alt");
+      tipoAlt[qualA] = btnAlt.getAttribute("data-v");
+      segA.querySelectorAll(".seg-btn").forEach(function(b){ b.classList.remove("ativo"); });
+      btnAlt.classList.add("ativo");
+      if (qualA === "km") renderTabelaKm(); else renderTabela();
+      return;
+    }
+    var btn = ev.target.closest(".seg[data-vis] .seg-btn");
+    if (!btn) return;
+    var seg = btn.closest(".seg");
+    var qual = seg.getAttribute("data-vis");
+    visAtual[qual] = btn.getAttribute("data-v");
+    seg.querySelectorAll(".seg-btn").forEach(function(b){ b.classList.remove("ativo"); });
+    btn.classList.add("ativo");
+    if (qual === "km"){
+      document.getElementById("kmTabelaWrap").hidden = visAtual.km === "grafico";
+      document.getElementById("kmGraficoWrap").hidden = visAtual.km !== "grafico";
+      renderTabelaKm();
+    } else {
+      document.getElementById("detTabelaWrap").hidden = visAtual.det === "grafico";
+      document.getElementById("detGraficoWrap").hidden = visAtual.det !== "grafico";
+      renderTabela();
+    }
+  });
+
+  // ===== imprimir só o cartão clicado =====
+  document.addEventListener("click", function(ev){
+    var btn = ev.target.closest("[data-print-card]");
+    if (!btn) return;
+    var card = btn.closest(".card");
+    if (!card) return;
+    card.classList.add("card-imprimindo");
+    document.body.classList.add("print-mode");
+    var limpar = function(){
+      card.classList.remove("card-imprimindo");
+      document.body.classList.remove("print-mode");
+      window.removeEventListener("afterprint", limpar);
+    };
+    window.addEventListener("afterprint", limpar);
+    setTimeout(function(){ window.print(); }, 60);
+  });
+
+  // ===== excel dos dados filtrados =====
+  document.getElementById("btnExcelKm").addEventListener("click", function(){
+    if (isVisitante || !ultimoFiltradoKm.length) return;
+    var dados = [["Placa","Bloco","Região","Igreja","KM início","KM fim","KM rodado","Status"]]
+      .concat(ultimoFiltradoKm.map(function(r){ return [r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7]]; }));
+    var ws = XLSX.utils.aoa_to_sheet(dados);
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "KM por veiculo");
+    XLSX.writeFile(wb, "km_por_veiculo_filtrado.xlsx");
+  });
+  document.getElementById("btnExcelDet").addEventListener("click", function(){
+    if (isVisitante || !ultimoFiltradoDet.length) return;
+    var dados = [["Data","Tipo","Bloco","Região","Igreja","Placa","Anterior","Novo","Aumento","Status"]]
+      .concat(ultimoFiltradoDet.map(function(r){
+        var d = deriva(r);
+        return [r[0], r[1], r[4], r[5], r[6], r[7], r[11], r[12], d.cargaExtra || 0, statusDe(r)];
+      }));
+    var ws = XLSX.utils.aoa_to_sheet(dados);
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Tabela detalhada");
+    XLSX.writeFile(wb, "tabela_detalhada_filtrada.xlsx");
   });
 
   document.getElementById("shareRow").addEventListener("click", function(ev){
