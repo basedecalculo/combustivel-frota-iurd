@@ -50,6 +50,16 @@
     -webkit-user-select:none;-moz-user-select:none;user-select:none;
   }
   body.modo-admin{-webkit-user-select:text;-moz-user-select:text;user-select:text;}
+  .modo-visitante #btnSalvar, .modo-visitante #btnCompartilharTopo, .modo-visitante #btnSolicitacoes{display:none !important;}
+  #watermarkVisitante{
+    position:fixed;inset:0;z-index:9000;pointer-events:none;
+    display:flex;align-items:center;justify-content:center;flex-wrap:wrap;
+    overflow:hidden;opacity:0.09;
+  }
+  #watermarkVisitante span{
+    display:block;transform:rotate(-28deg);font-size:22px;font-weight:800;color:#fff;
+    white-space:nowrap;padding:40px;
+  }
   input, textarea{-webkit-user-select:text;-moz-user-select:text;user-select:text;}
   .app{max-width:1120px;margin:0 auto;padding:0 20px 64px;}
 
@@ -521,6 +531,7 @@
 </style>
 </head>
 <body>
+<div id="watermarkVisitante" hidden></div>
 <div class="app">
 
   <div id="offlineScreen" class="gate-overlay" hidden>
@@ -1011,6 +1022,57 @@
 
   var percursoAtual = "ida";
   var isAdmin = false;
+  var isVisitante = false;
+
+  var watermarkInterval = null;
+  function iniciarWatermark(){
+    function desenhar(){
+      var texto = "VISITANTE — " + new Date().toLocaleString("pt-BR");
+      var el = document.getElementById("watermarkVisitante");
+      el.innerHTML = "";
+      for (var i = 0; i < 24; i++){
+        var s = document.createElement("span");
+        s.textContent = texto;
+        el.appendChild(s);
+      }
+    }
+    desenhar();
+    if (watermarkInterval) clearInterval(watermarkInterval);
+    watermarkInterval = setInterval(desenhar, 60000);
+  }
+
+  // ================= BLOQUEIO POR SENHA ERRADA (separado do bloqueio por dispositivo) =================
+  var SENHA_BLOQUEIO_INICIAL_MS = 30 * 60 * 1000;
+  var SENHA_BLOQUEIO_ESCALADA_MS = 3 * 60 * 60 * 1000;
+  function emailParaDocId(email){ return email.replace(/[.\/]/g, "_"); }
+  function checarBloqueioSenha(email){
+    return dbFB.collection("tentativas_senha").doc(emailParaDocId(email)).get().then(function(doc){
+      if (!doc.exists) return {bloqueado:false};
+      var d = doc.data();
+      var agora = Date.now();
+      if (d.bloqueadoAte && d.bloqueadoAte > agora){
+        return {bloqueado:true, minutos: Math.ceil((d.bloqueadoAte - agora)/60000)};
+      }
+      return {bloqueado:false};
+    }).catch(function(){ return {bloqueado:false}; });
+  }
+  function registrarFalhaSenha(email){
+    var ref = dbFB.collection("tentativas_senha").doc(emailParaDocId(email));
+    return ref.get().then(function(doc){
+      var d = doc.exists ? doc.data() : {falhas:0, bloqueadoAte:null};
+      var falhas = (d.falhas || 0) + 1;
+      var agora = Date.now();
+      var bloqueadoAte = d.bloqueadoAte || null;
+      var jaEstavaBloqueado = bloqueadoAte && bloqueadoAte > agora;
+      if (jaEstavaBloqueado){ bloqueadoAte = agora + SENHA_BLOQUEIO_ESCALADA_MS; }
+      else if (falhas >= 3){ bloqueadoAte = agora + SENHA_BLOQUEIO_INICIAL_MS; }
+      ref.set({falhas: falhas, bloqueadoAte: bloqueadoAte, ultimaTentativa: agora});
+      return {falhas: falhas, bloqueadoAte: bloqueadoAte};
+    });
+  }
+  function limparFalhasSenha(email){
+    dbFB.collection("tentativas_senha").doc(emailParaDocId(email)).set({falhas:0, bloqueadoAte:null, ultimaTentativa:Date.now()});
+  }
   var blocoAtual = null;
   var currentVehicle = null; // {placa, bloco, regiao, igreja, modeloIdx, ano}
   var lastResult = null;
@@ -2354,6 +2416,7 @@
 
   function processarLoginOk(tokenResult){
     isAdmin = !!tokenResult.claims.admin;
+    isVisitante = !!tokenResult.claims.visitante;
     blocoAtual = tokenResult.claims.bloco || null;
     if (blocoAtual && !isAdmin){
       verificarESessaoUnica(blocoAtual).then(function(res){
@@ -2386,28 +2449,47 @@
     erroEl.hidden = true;
     if (!senha){ erroEl.textContent = "Digite a senha."; erroEl.hidden = false; return; }
 
-    function tentativa(email, fallback1, fallback2){
-      authFB.signInWithEmailAndPassword(email, senha).then(function(cred){
-        return cred.user.getIdTokenResult();
-      }).then(function(tokenResult){
-        processarLoginOk(tokenResult);
-      }).catch(function(err){
-        if (err.code === "auth/too-many-requests"){
-          erroEl.textContent = "Muitas tentativas erradas — o Firebase bloqueou essa conta por alguns minutos, por segurança.";
-          erroEl.hidden = false;
-        } else if (fallback1){
-          tentativa(fallback1, fallback2, null);
-        } else {
-          erroEl.textContent = "Senha incorreta.";
-          erroEl.hidden = false;
-        }
-      });
-    }
-    if (perfil && BLOCO_EMAIL[perfil]){
-      tentativa(BLOCO_EMAIL[perfil], null, null);
-    } else {
-      tentativa("geral@paineliurd.app", "admin@paineliurd.app", "adminaux@paineliurd.app");
-    }
+    var emailPrincipal = (perfil && BLOCO_EMAIL[perfil]) ? BLOCO_EMAIL[perfil] : "geral@paineliurd.app";
+
+    checarBloqueioSenha(emailPrincipal).then(function(chk){
+      if (chk.bloqueado){
+        erroEl.textContent = "Bloqueado por senhas erradas — tente de novo em " + chk.minutos + " min, ou peça pro administrador desbloquear.";
+        erroEl.hidden = false;
+        return;
+      }
+
+      function tentativa(email, fallback1, fallback2){
+        authFB.signInWithEmailAndPassword(email, senha).then(function(cred){
+          limparFalhasSenha(emailPrincipal);
+          return cred.user.getIdTokenResult();
+        }).then(function(tokenResult){
+          processarLoginOk(tokenResult);
+        }).catch(function(err){
+          if (err.code === "auth/too-many-requests"){
+            erroEl.textContent = "Muitas tentativas erradas — o Firebase bloqueou essa conta por alguns minutos, por segurança.";
+            erroEl.hidden = false;
+          } else if (fallback1){
+            tentativa(fallback1, fallback2, null);
+          } else {
+            registrarFalhaSenha(emailPrincipal).then(function(r){
+              if (r.falhas === 2){
+                erroEl.textContent = "Senha incorreta. Mais 1 tentativa errada e a conta é bloqueada por 30 min.";
+              } else if (r.bloqueadoAte && r.bloqueadoAte > Date.now()){
+                erroEl.textContent = "Senha incorreta 3 vezes. Bloqueado por " + Math.ceil((r.bloqueadoAte-Date.now())/60000) + " min.";
+              } else {
+                erroEl.textContent = "Senha incorreta.";
+              }
+              erroEl.hidden = false;
+            });
+          }
+        });
+      }
+      if (perfil && BLOCO_EMAIL[perfil]){
+        tentativa(BLOCO_EMAIL[perfil], null, null);
+      } else {
+        tentativa("geral@paineliurd.app", "admin@paineliurd.app", "adminaux@paineliurd.app");
+      }
+    });
   }
   document.getElementById("btnEntrar").addEventListener("click", tentarLogin);
   document.getElementById("loginSenha").addEventListener("keydown", function(ev){ if (ev.key === "Enter") tentarLogin(); });
@@ -2482,6 +2564,9 @@
     if (chk) chk.checked = isAdmin;
     document.body.classList.toggle("modo-admin", isAdmin);
     document.getElementById("btnVerTodosBlocos").hidden = !isAdmin;
+    document.body.classList.toggle("modo-visitante", isVisitante);
+    document.getElementById("watermarkVisitante").hidden = !isVisitante;
+    if (isVisitante) iniciarWatermark();
   }
   function atualizarBadgePreco(){
     el.precoTipoBadge.textContent = precoFuelTypeAtual + (isAdmin ? " · editável (admin)" : " · fixo");
