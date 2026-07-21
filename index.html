@@ -619,6 +619,7 @@
       <div class="field">
         <label for="loginSenha">Senha</label>
         <div class="input-suffix"><input type="password" id="loginSenha" placeholder="••••" autocomplete="current-password"></div>
+        <p class="hint" style="margin-top:6px;">Dica: você pode colar a senha (Ctrl+V ou segurar e Colar no celular).</p>
       </div>
       <p class="login-error" id="loginError" hidden></p>
       <button type="button" class="btn-primary" id="btnEntrar">Entrar</button>
@@ -1081,7 +1082,8 @@
   // é só uma barreira contra cópia casual. A proteção de verdade agora é o login no Firebase,
   // que decide o que o navegador chega a receber.
   document.addEventListener("contextmenu", function(ev){
-    if (!isAdmin) ev.preventDefault();
+    // liberado dentro de campos de digitação (pra dar pra colar a senha com o botão direito)
+    if (!isAdmin && !ev.target.closest("input, textarea, select")) ev.preventDefault();
   });
   document.addEventListener("copy", function(ev){
     if (!isAdmin) ev.preventDefault();
